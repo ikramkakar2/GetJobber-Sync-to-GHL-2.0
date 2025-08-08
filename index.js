@@ -69,6 +69,7 @@ app.get('/', (req, res) => {
 // 🚀 Webhook Receiver
 app.post('/callback/jobber', async (req, res) => {
   try {
+    console.log('🔔 Incoming webhook payload:', req.body);
     console.log('📥 Webhook Payload:', JSON.stringify(req.body, null, 2));
 
     const { client, job, visit, invoice } = req.body;
@@ -113,3 +114,4 @@ app.post('/callback/jobber', async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+
