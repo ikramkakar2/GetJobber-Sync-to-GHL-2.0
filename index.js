@@ -48,7 +48,8 @@ async function addTagToContact(contactId, tag) {
   }
 }
 
-function mapJobberStatusToTag(jobStatus, visitStatus, invoiceStatus) {
+// 🔁 Map Jobber Statuses to GHL Tags
+function mapToGHLTag({ jobStatus, visitStatus, invoiceStatus }) {
   if (jobStatus === 'requires_action') return 'New Request / Lead In';
   if (jobStatus === 'quote_sent') return 'Quote Sent';
   if (visitStatus === 'scheduled') return 'Job Scheduled';
@@ -60,15 +61,15 @@ function mapJobberStatusToTag(jobStatus, visitStatus, invoiceStatus) {
   return null;
 }
 
-// Test endpoint
+// 🔍 Test Route
 app.get('/', (req, res) => {
-  res.send('✅ Webhook server running');
+  res.send('✅ Jobber → GHL sync is live');
 });
 
-// Main webhook endpoint
+// 🚀 Webhook Receiver
 app.post('/callback/jobber', async (req, res) => {
   try {
-    console.log('📥 Incoming Webhook Payload:', req.body);
+    console.log('📥 Webhook Payload:', JSON.stringify(req.body, null, 2));
 
     const { client, job, visit, invoice } = req.body;
     const email = client?.email;
@@ -78,33 +79,34 @@ app.post('/callback/jobber', async (req, res) => {
       return res.status(400).json({ error: 'Email required from Jobber webhook' });
     }
 
-    const tag = mapJobberStatusToTag(job?.status, visit?.status, invoice?.status);
+    const tag = mapToGHLTag({
+      jobStatus: job?.status,
+      visitStatus: visit?.status,
+      invoiceStatus: invoice?.status
+    });
+
     if (!tag) {
-      console.log('⚠️ No matching tag for statuses, skipping.');
-      return res.status(200).json({ message: 'No tag matched, skipping.' });
+      console.log('⚠️ No matching tag for this status. Skipping.');
+      return res.status(200).json({ message: 'No matching tag, skipping.' });
     }
 
     let contact = await findContactByEmail(email);
-    console.log('🔎 Found contact:', contact);
-
     if (!contact) {
       contact = await createContact({ name, email });
-      console.log('✅ Created new contact:', contact);
     }
 
     if (contact?.id) {
       await addTagToContact(contact.id, tag);
-      console.log('🏷️ Tag added:', tag);
       return res.status(200).json({ success: true, tag });
     } else {
       return res.status(500).json({ error: 'Failed to create or find contact' });
     }
 
   } catch (err) {
-    console.error('❌ ERROR:', err?.response?.data || err.message || err);
+    console.error('❌ ERROR:', err?.response?.data || err.message);
     res.status(500).json({
       error: 'Internal error',
-      message: err?.response?.data || err.message || err
+      message: err?.response?.data || err.message
     });
   }
 });
