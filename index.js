@@ -1,24 +1,38 @@
-import express from 'express';
-import axios from 'axios';
-import dotenv from 'dotenv';
-
-dotenv.config();
+// index.js
+const express = require('express');
+const axios = require('axios');
+require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-
-const GHL_BASE = 'https://rest.gohighlevel.com/v1';
-
-// Headers for GHL
-const headers = {
-  Authorization: `Bearer ${process.env.GHL_API_KEY}`,
-  'Content-Type': 'application/json',
-};
-
-// Parse JSON bodies
 app.use(express.json());
 
-// Utility: Map Jobber status to GHL tag
+const GHL_BASE = 'https://rest.gohighlevel.com/v1';
+const JOBBER_BASE = 'https://api.getjobber.com/api';
+const headers = {
+  Authorization: `Bearer ${process.env.GHL_API_KEY}`,
+  'Content-Type': 'application/json'
+};
+
+async function findContactByEmail(email) {
+  const res = await axios.get(`${GHL_BASE}/contacts/lookup?email=${email}`, { headers });
+  return res.data.contact || null;
+}
+
+async function createContact({ name, email }) {
+  const res = await axios.post(`${GHL_BASE}/contacts/`, {
+    firstName: name,
+    email,
+    locationId: process.env.GHL_LOCATION_ID
+  }, { headers });
+  return res.data.contact;
+}
+
+async function addTagToContact(contactId, tag) {
+  await axios.post(`${GHL_BASE}/contacts/${contactId}/tags/`, {
+    tags: [tag]
+  }, { headers });
+}
+
 function mapJobberStatusToTag(jobStatus, visitStatus, invoiceStatus) {
   if (jobStatus === 'requires_action') return 'New Request / Lead In';
   if (jobStatus === 'quote_sent') return 'Quote Sent';
@@ -31,42 +45,16 @@ function mapJobberStatusToTag(jobStatus, visitStatus, invoiceStatus) {
   return null;
 }
 
-// Lookup contact by email
-async function findContactByEmail(email) {
-  const res = await axios.get(`${GHL_BASE}/contacts/lookup?email=${email}`, { headers });
-  return res.data.contact || null;
-}
-
-// Create a contact
-async function createContact({ name, email }) {
-  const res = await axios.post(`${GHL_BASE}/contacts/`, {
-    firstName: name,
-    email,
-    locationId: process.env.GHL_LOCATION_ID,
-  }, { headers });
-
-  return res.data.contact;
-}
-
-// Add tag to contact
-async function addTagToContact(contactId, tag) {
-  await axios.post(`${GHL_BASE}/contacts/${contactId}/tags/`, {
-    tags: [tag],
-  }, { headers });
-}
-
-// Webhook endpoint
-app.post('/webhook', async (req, res) => {
+app.post('/callback/jobber', async (req, res) => {
   try {
     const { client, job, visit, invoice } = req.body;
     const email = client?.email;
     const name = `${client?.first_name || ''} ${client?.last_name || ''}`.trim();
 
-    if (!email) return res.status(400).json({ error: 'Missing client email' });
+    if (!email) return res.status(400).json({ error: 'Email required from Jobber webhook' });
 
     const tag = mapJobberStatusToTag(job?.status, visit?.status, invoice?.status);
-
-    if (!tag) return res.status(200).json({ message: 'No tag matched. Skipping.' });
+    if (!tag) return res.status(200).json({ message: 'No tag matched, skipping.' });
 
     let contact = await findContactByEmail(email);
     if (!contact) {
@@ -74,19 +62,16 @@ app.post('/webhook', async (req, res) => {
     }
 
     await addTagToContact(contact.id, tag);
-
     res.status(200).json({ success: true, tag });
-  } catch (err) {
-    console.error(err.response?.data || err.message);
-    res.status(500).json({ error: 'Internal error' });
-  }
+  }catch (err) {
+  console.error("ERROR:", err?.response?.data || err.message || err);
+  res.status(500).json({ 
+    error: 'Internal error',
+    message: err?.response?.data || err.message || err
+  });
+}
+
 });
 
-// Root route
-app.get('/', (req, res) => {
-  res.send('✅ Webhook server is running.');
-});
-
-app.listen(PORT, () => {
-  console.log(`🚀 Server live on port ${PORT}`);
-});
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
